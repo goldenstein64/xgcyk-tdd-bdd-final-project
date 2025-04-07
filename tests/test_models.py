@@ -27,7 +27,7 @@ import os
 import logging
 import unittest
 from decimal import Decimal
-from service.models import Product, Category, db
+from service.models import Product, Category, db, DataValidationError
 from service import app
 from tests.factories import ProductFactory
 
@@ -133,3 +133,81 @@ class TestProductModel(unittest.TestCase):
         self.assertEqual(len(Product.all()), 1)
         product.delete()
         self.assertEqual(len(Product.all()), 0)
+
+    def test_list_all_products(self):
+        """It can list all products in the database"""
+        self.assertEqual(len(Product.all()), 0)
+        for product in ProductFactory.create_batch(5):
+            product.create()
+        self.assertEqual(len(Product.all()), 5)
+
+    def test_find_product_by_name(self):
+        """It can find products in the database by name"""
+        product = ProductFactory(name="cool name")
+        for product in ProductFactory.create_batch(4):
+            product.create()
+        
+        cool_products = sorted((p for p in Product.all() if p.name == "cool name"), key=lambda p: p.id)
+        self.assertEqual(cool_products, sorted(Product.find_by_name("cool name"), key=lambda p: p.id))
+
+    def test_find_product_by_price(self):
+        """It can find products in the database by price"""
+        product = ProductFactory(price=Decimal("12.50"))
+        for product in ProductFactory.create_batch(4):
+            product.create()
+
+        products_1250 = sorted((p for p in Product.all() if p.price == Decimal("12.50")), key=lambda p: p.id)
+        self.assertEqual(products_1250, sorted(Product.find_by_price("12.50")))
+        self.assertEqual(products_1250, sorted(Product.find_by_price(" \" 12.50\"\"   ")))
+
+    def test_find_product_by_availability(self):
+        """It can find products in the database by availability"""
+        for product in ProductFactory.create_batch(10):
+            product.create()
+
+        available = sorted((p for p in Product.all() if p.available is True), key=lambda p: p.id)
+        unavailable = sorted((p for p in Product.all() if p.available is False), key=lambda p: p.id)
+        self.assertEqual(available, sorted(Product.find_by_availability(), key=lambda p: p.id))
+        self.assertEqual(available, sorted(Product.find_by_availability(True), key=lambda p: p.id))
+        self.assertEqual(unavailable, sorted(Product.find_by_availability(False), key=lambda p: p.id))
+
+    def test_find_product_by_category(self):
+        """It can find products in the database by category"""
+        for product in ProductFactory.create_batch(10):
+            product.create()
+
+        first_category = Product.all()[0].category
+        categorized = sorted((p for p in Product.all() if p.category == first_category), key=lambda p: p.id)
+        uncategorized = sorted((p for p in Product.all() if p.category == Category.UNKNOWN), key=lambda p: p.id)
+        self.assertEqual(categorized, sorted(Product.find_by_category(first_category), key=lambda p: p.id))
+        self.assertEqual(uncategorized, sorted(Product.find_by_category(), key=lambda p: p.id))
+
+    def test_update_id_error(self):
+        """Product updates error if the product's id is falsy"""
+        product = ProductFactory()
+        product.create()
+        product.id = None
+        with self.assertRaises(DataValidationError):
+            product.update()
+
+    def test_deserialize_available_error(self):
+        """Deserializing a product errors if the 'available' field is non-boolean"""
+        product = ProductFactory()
+        product_dict = product.serialize()
+        product_dict["available"] = 10
+        with self.assertRaises(DataValidationError):
+            product.deserialize(product_dict)
+
+    def test_deserialize_category_error(self):
+        """Deserializing a product errors if the 'category' field is not a valid category"""
+        product = ProductFactory()
+        product_dict = product.serialize()
+        product_dict["category"] = "FAKE_CATEGORY"
+        with self.assertRaises(DataValidationError):
+            product.deserialize(product_dict)
+
+    def test_deserialize_none_error(self):
+        """Deserializing a non-product errors"""
+        product = Product()
+        with self.assertRaises(DataValidationError):
+            product.deserialize(None)
