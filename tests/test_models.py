@@ -108,7 +108,7 @@ class TestProductModel(unittest.TestCase):
         product.id = None
         product.create()
         self.assertIsNotNone(product.id)
-        
+
         found = Product.find(product.id)
         self.assertEqual(found, product)
 
@@ -146,7 +146,7 @@ class TestProductModel(unittest.TestCase):
         product = ProductFactory(name="cool name")
         for product in ProductFactory.create_batch(4):
             product.create()
-        
+
         cool_products = sorted((p for p in Product.all() if p.name == "cool name"), key=lambda p: p.id)
         self.assertEqual(cool_products, sorted(Product.find_by_name("cool name"), key=lambda p: p.id))
 
