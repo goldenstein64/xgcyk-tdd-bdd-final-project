@@ -163,9 +163,82 @@ class TestProductRoutes(TestCase):
         response = self.client.post(BASE_URL, data={}, content_type="plain/text")
         self.assertEqual(response.status_code, status.HTTP_415_UNSUPPORTED_MEDIA_TYPE)
 
-    #
-    # ADD YOUR TEST CASES HERE
-    #
+    def test_get_product(self):
+        """It can get a product by its id"""
+        product = ProductFactory()
+        product.create()
+        response = self.client.get(f"/products/{product.id}")
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self.assertEqual(product.serialize(), response.get_json())
+
+    def test_get_product_not_found(self):
+        """It returns a 404 status if the product does not exist"""
+        response = self.client.get("/products/71077345")
+        self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
+
+    def test_update_product(self):
+        """It can update a product in the database"""
+        product = ProductFactory()
+        product.create()
+        response = self.client.put(f"/products/{product.id}", json={
+            "name": "cool name",
+            "description": "cool description",
+        })
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        found_product = Product.find(product.id)
+        self.assertEqual("cool name", found_product.name)
+        self.assertEqual("cool description", found_product.description)
+
+    def test_update_product_not_found(self):
+        """It errors when trying to update a product that does not exist"""
+        response = self.client.put("/products/71077345")
+        self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
+
+
+    def test_update_product_non_json(self):
+        """It errors when updating a product with a non-JSON body"""
+        product = ProductFactory()
+        product.create()
+        response = self.client.put(f"/products/{product.id}", data="{")
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+
+    def test_update_product_empty_json(self):
+        """It errors when updating a product with an empty JSON body"""
+        product = ProductFactory()
+        product.create()
+        response = self.client.put(f"/products/{product.id}", json=dict())
+        self.assertEqual(status.HTTP_422_UNPROCESSABLE_ENTITY, response.status_code)
+
+    def test_update_product_bad_field(self):
+        """It errors when updating a product using a bad field"""
+        product = ProductFactory()
+        product.create()
+        response = self.client.put(f"/products/{product.id}", json={"bad_field": "a"})
+        self.assertEqual(status.HTTP_422_UNPROCESSABLE_ENTITY, response.status_code)
+
+    def test_delete_product(self):
+        """It can delete a product"""
+        product = ProductFactory()
+        product.create()
+        response = self.client.delete(f"/products/{product.id}")
+        self.assertEqual(status.HTTP_204_NO_CONTENT, response.status_code)
+        no_product = Product.find(product.id)
+        self.assertIsNone(no_product)
+    
+    def test_delete_product_not_found(self):
+        """It errors when attempting to delete a product that does not exist"""
+        response = self.client.delete(f"/products/71077345")
+        self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
+
+    def test_list_products(self):
+        """It can list all products"""
+        for product in ProductFactory.create_batch(10):
+            product.create()
+
+        response = self.client.get("/products")
+        products = sorted((p.serialize() for p in Product.all()), key=lambda p: p["id"])
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self.assertEqual(products, response.get_json())
 
     ######################################################################
     # Utility functions

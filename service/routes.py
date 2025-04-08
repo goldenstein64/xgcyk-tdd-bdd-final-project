@@ -18,9 +18,12 @@
 """
 Product Store Service with UI
 """
+from dataclasses import dataclass
+from decimal import Decimal
+
 from flask import jsonify, request, abort
 from flask import url_for  # noqa: F401 pylint: disable=unused-import
-from service.models import Product
+from service.models import Product, Category
 from service.common import status  # HTTP Status Codes
 from . import app
 
@@ -89,8 +92,7 @@ def create_products():
     #
     # Uncomment this line of code once you implement READ A PRODUCT
     #
-    # location_url = url_for("get_products", product_id=product.id, _external=True)
-    location_url = "/"  # delete once READ is implemented
+    location_url = url_for("get_product", product_id=product.id, _external=True)
     return jsonify(message), status.HTTP_201_CREATED, {"Location": location_url}
 
 
@@ -98,31 +100,76 @@ def create_products():
 # L I S T   A L L   P R O D U C T S
 ######################################################################
 
-#
-# PLACE YOUR CODE TO LIST ALL PRODUCTS HERE
-#
+@app.route("/products", methods=["GET"])
+def list_products():
+    request.query
+    return [p.serialize() for p in Product.all()]
 
 ######################################################################
 # R E A D   A   P R O D U C T
 ######################################################################
 
-#
-# PLACE YOUR CODE HERE TO READ A PRODUCT
-#
+@app.route("/products/<int:product_id>", methods=["GET"])
+def get_product(product_id: int):
+    product = Product.find(product_id)
+    if product is None:
+        return ("product not found", status.HTTP_404_NOT_FOUND)
+
+    return product.serialize()
 
 ######################################################################
 # U P D A T E   A   P R O D U C T
 ######################################################################
 
-#
-# PLACE YOUR CODE TO UPDATE A PRODUCT HERE
-#
+class Transform:
+    def __init__(self, matches, converts = None):
+        self.matches = matches
+        self.converts = converts
+
+updateable = { 
+    "name": Transform(lambda x: isinstance(x, str)), 
+    "description": Transform(lambda x: isinstance(x, str)), 
+    "available": Transform(lambda x: isinstance(x, bool)), 
+    "price": Transform(matches=lambda x: isinstance(x, str), converts=Decimal),
+    "category": Transform(matches=lambda x: x in Category.__members__, converts=Category.__getitem__)
+}
+@app.route("/products/<int:product_id>", methods=["PUT"])
+def update_product(product_id: int):
+    product = Product.find(product_id)
+    if product is None:
+        return ("product not found", status.HTTP_404_NOT_FOUND)
+
+    data = request.get_json()
+    if not isinstance(data, dict):
+        return ("body must be a JSON object", status.HTTP_400_BAD_REQUEST)
+    elif len(data) <= 0:
+        return ("body must be non-empty", status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+    for k, v in data.items():
+        transform = updateable.get(k)
+        if transform is None:
+            return (f"key '{k}' is not a valid field", status.HTTP_422_UNPROCESSABLE_ENTITY)
+        elif not transform.matches(v):
+            return (f"field '{k}' has an invalid value ({v})", status.HTTP_422_UNPROCESSABLE_ENTITY)
+        else:
+            converted = v if transform.converts is None else transform.converts(v)
+            setattr(product, k, converted)
+
+    product.update()
+    return product.serialize()
+            
+
+
 
 ######################################################################
 # D E L E T E   A   P R O D U C T
 ######################################################################
 
-
-#
-# PLACE YOUR CODE TO DELETE A PRODUCT HERE
-#
+@app.route("/products/<int:product_id>", methods=["DELETE"])
+def delete_product(product_id):
+    product = Product.find(product_id)
+    if product is None:
+        return ("product not found", status.HTTP_404_NOT_FOUND)
+    else:
+        product.delete()
+        return ("", status.HTTP_204_NO_CONTENT)
