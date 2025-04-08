@@ -102,8 +102,34 @@ def create_products():
 
 @app.route("/products", methods=["GET"])
 def list_products():
-    request.query
-    return [p.serialize() for p in Product.all()]
+    products = Product.all()
+    if "name" in request.args:
+        names = set(request.args.getlist("name"))
+        products = (p for p in products if p.name in names)
+    
+    if "category" in request.args:
+        raw_categories = request.args.getlist("category")
+        for c in raw_categories:
+            if c not in Category.__members__:
+                return (f"category '{c}' is not valid", status.HTTP_400_BAD_REQUEST)
+
+        categories = set(Category[c] for c in raw_categories)
+        products = (p for p in products if p.category in categories)
+
+
+    if "available" in request.args:
+        raw_availabilities = request.args.getlist("available")
+        for a in raw_availabilities:
+            if a not in ["0", "1"]:
+                return (f"available value '{a}' is not 0 or 1", status.HTTP_400_BAD_REQUEST)
+
+        availabilities = set(bool(int(a)) for a in raw_availabilities)
+        if len(availabilities) > 1:
+            return ("only one type of availability should be listed", status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+        products = (p for p in products if p.available in availabilities)
+
+    return [p.serialize() for p in products]
 
 ######################################################################
 # R E A D   A   P R O D U C T

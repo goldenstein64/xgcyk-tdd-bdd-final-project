@@ -30,7 +30,7 @@ from decimal import Decimal
 from unittest import TestCase
 from service import app
 from service.common import status
-from service.models import db, init_db, Product
+from service.models import db, init_db, Product, Category
 from tests.factories import ProductFactory
 
 # Disable all but critical errors during normal test run
@@ -239,6 +239,60 @@ class TestProductRoutes(TestCase):
         products = sorted((p.serialize() for p in Product.all()), key=lambda p: p["id"])
         self.assertEqual(status.HTTP_200_OK, response.status_code)
         self.assertEqual(products, response.get_json())
+
+    def test_list_products_by_name(self):
+        """It can list products by name"""
+        product = ProductFactory(name="cool name")
+        product.create()
+        for product in ProductFactory.create_batch(9):
+            product.create()
+
+        response = self.client.get("/products?name=cool%20name")
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+
+        expected_body = sorted((p.serialize() for p in Product.find_by_name("cool name")), key=lambda p: p["id"])
+        self.assertEqual(expected_body, sorted(response.get_json(), key=lambda p: p["id"]))
+
+    def test_list_products_by_category(self):
+        """It can list products by category"""
+        product = ProductFactory(category=Category.HOUSEWARES)
+        product.create()
+        for product in ProductFactory.create_batch(9):
+            product.create()
+
+        response = self.client.get("/products?category=HOUSEWARES")
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        expected_body = sorted((p.serialize() for p in Product.find_by_category(Category.HOUSEWARES)), key=lambda p: p["id"])
+        self.assertEqual(expected_body, sorted(response.get_json(), key=lambda p: p["id"]))
+
+    def test_list_products_by_bad_category(self):
+        """It errors when listing products with a bad category query"""
+        response = self.client.get("/products?category=FAKE_CATEGORY")
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+
+    def test_list_products_by_availability(self):
+        """It can list products by availability"""
+        for product in ProductFactory.create_batch(10):
+            product.create()
+
+        response = self.client.get("/products?available=0")
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        expected_body = sorted((p.serialize() for p in Product.find_by_availability(False)), key=lambda p: p["id"])
+        self.assertEqual(expected_body, sorted(response.get_json(), key=lambda p: p["id"]))
+
+    def test_list_products_by_bad_availability(self):
+        """It errors when listing products with a bad availability query"""
+        response = self.client.get("/products?available=FAKE_AVAILABILITY")
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+
+    def test_list_products_multiple_availabilities(self):
+        """
+        It errors when listing products with multiple availability queries
+        
+        Omit availability instead
+        """
+        response = self.client.get("/products?available=0&available=1")
+        self.assertEqual(status.HTTP_422_UNPROCESSABLE_ENTITY, response.status_code)
 
     ######################################################################
     # Utility functions
