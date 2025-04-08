@@ -45,6 +45,15 @@ def step_impl(context, message):
     """ Check the document title for a message """
     assert(message in context.driver.title)
 
+@then('I should see the message "{message}"')
+def step_impl(context, message):
+    assert WebDriverWait(context.driver, context.wait_seconds).until(
+        expected_conditions.text_to_be_present_in_element(
+            (By.ID, 'flash_message'),
+            message
+        )
+    )
+
 @then('I should not see "{text_string}"')
 def step_impl(context, text_string):
     element = context.driver.find_element(By.TAG_NAME, 'body')
@@ -75,6 +84,20 @@ def step_impl(context, element_name):
     element = context.driver.find_element(By.ID, element_id)
     assert(element.get_attribute('value') == u'')
 
+@then('I should see "{text}" in the results')
+def step_impl(context, text):
+    assert WebDriverWait(context.driver, context.wait_seconds).until(
+        expected_conditions.text_to_be_present_in_element(
+            (By.ID, 'search_results'),
+            text
+        )
+    )
+
+@then('I should not see "{text}" in the results')
+def step_impl(context, text):
+    search_results = context.driver.find_element(By.ID, "search_results")
+    assert text not in search_results.text
+
 ##################################################################
 # These two function simulate copy and paste
 ##################################################################
@@ -104,7 +127,11 @@ def step_impl(context, element_name):
 # to get the element id of any button
 ##################################################################
 
-## UPDATE CODE HERE ##
+@when('I press the "{element_name}" button')
+def step_impl(context, element_name):
+    element_id = f"{element_name.lower().replace(' ', '_')}-btn"
+    element = context.driver.find_element(By.ID, element_id)
+    element.click()
 
 ##################################################################
 # This code works because of the following naming convention:
