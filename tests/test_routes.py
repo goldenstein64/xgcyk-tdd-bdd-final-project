@@ -135,14 +135,14 @@ class TestProductRoutes(TestCase):
         #
 
         # # Check that the location header was correct
-        # response = self.client.get(location)
-        # self.assertEqual(response.status_code, status.HTTP_200_OK)
-        # new_product = response.get_json()
-        # self.assertEqual(new_product["name"], test_product.name)
-        # self.assertEqual(new_product["description"], test_product.description)
-        # self.assertEqual(Decimal(new_product["price"]), test_product.price)
-        # self.assertEqual(new_product["available"], test_product.available)
-        # self.assertEqual(new_product["category"], test_product.category.name)
+        response = self.client.get(location)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        new_product = response.get_json()
+        self.assertEqual(new_product["name"], test_product.name)
+        self.assertEqual(new_product["description"], test_product.description)
+        self.assertEqual(Decimal(new_product["price"]), test_product.price)
+        self.assertEqual(new_product["available"], test_product.available)
+        self.assertEqual(new_product["category"], test_product.category.name)
 
     def test_create_product_with_no_name(self):
         """It should not Create a Product without a name"""
@@ -194,9 +194,8 @@ class TestProductRoutes(TestCase):
         response = self.client.put("/products/71077345")
         self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
 
-
-    def test_update_product_non_json(self):
-        """It errors when updating a product with a non-JSON body"""
+    def test_update_product_bad_json(self):
+        """It errors when updating a product with a bad JSON body"""
         product = ProductFactory()
         product.create()
         response = self.client.put(f"/products/{product.id}", data="{")
@@ -206,14 +205,21 @@ class TestProductRoutes(TestCase):
         """It errors when updating a product with an empty JSON body"""
         product = ProductFactory()
         product.create()
-        response = self.client.put(f"/products/{product.id}", json=dict())
+        response = self.client.put(f"/products/{product.id}", json={})
         self.assertEqual(status.HTTP_422_UNPROCESSABLE_ENTITY, response.status_code)
 
-    def test_update_product_bad_field(self):
-        """It errors when updating a product using a bad field"""
+    def test_update_product_bad_field_key(self):
+        """It errors when updating a product using a bad field key"""
         product = ProductFactory()
         product.create()
         response = self.client.put(f"/products/{product.id}", json={"bad_field": "a"})
+        self.assertEqual(status.HTTP_422_UNPROCESSABLE_ENTITY, response.status_code)
+
+    def test_update_product_bad_field_value(self):
+        """It errors when updating a product using a bad field value"""
+        product = ProductFactory()
+        product.create()
+        response = self.client.put(f"/products/{product.id}", json={"available": 10})
         self.assertEqual(status.HTTP_422_UNPROCESSABLE_ENTITY, response.status_code)
 
     def test_delete_product(self):
@@ -224,10 +230,10 @@ class TestProductRoutes(TestCase):
         self.assertEqual(status.HTTP_204_NO_CONTENT, response.status_code)
         no_product = Product.find(product.id)
         self.assertIsNone(no_product)
-    
+
     def test_delete_product_not_found(self):
         """It errors when attempting to delete a product that does not exist"""
-        response = self.client.delete(f"/products/71077345")
+        response = self.client.delete("/products/71077345")
         self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
 
     def test_list_products(self):
@@ -253,6 +259,11 @@ class TestProductRoutes(TestCase):
         expected_body = sorted((p.serialize() for p in Product.find_by_name("cool name")), key=lambda p: p["id"])
         self.assertEqual(expected_body, sorted(response.get_json(), key=lambda p: p["id"]))
 
+    def test_list_products_by_name_empty(self):
+        """It errors when listing products with an empty name"""
+        response = self.client.get("/products?name=")
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+
     def test_list_products_by_category(self):
         """It can list products by category"""
         product = ProductFactory(category=Category.HOUSEWARES)
@@ -275,7 +286,7 @@ class TestProductRoutes(TestCase):
         for product in ProductFactory.create_batch(10):
             product.create()
 
-        response = self.client.get("/products?available=0")
+        response = self.client.get("/products?available=false")
         self.assertEqual(status.HTTP_200_OK, response.status_code)
         expected_body = sorted((p.serialize() for p in Product.find_by_availability(False)), key=lambda p: p["id"])
         self.assertEqual(expected_body, sorted(response.get_json(), key=lambda p: p["id"]))
@@ -285,19 +296,9 @@ class TestProductRoutes(TestCase):
         response = self.client.get("/products?available=FAKE_AVAILABILITY")
         self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
 
-    def test_list_products_multiple_availabilities(self):
-        """
-        It errors when listing products with multiple availability queries
-        
-        Omit availability instead
-        """
-        response = self.client.get("/products?available=0&available=1")
-        self.assertEqual(status.HTTP_422_UNPROCESSABLE_ENTITY, response.status_code)
-
     ######################################################################
     # Utility functions
     ######################################################################
-
     def get_product_count(self):
         """save the current number of products"""
         response = self.client.get(BASE_URL)

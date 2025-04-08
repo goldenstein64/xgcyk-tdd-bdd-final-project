@@ -18,8 +18,9 @@
 """
 Product Store Service with UI
 """
-from dataclasses import dataclass
 from decimal import Decimal
+from dataclasses import dataclass
+from typing import Iterable, Callable, Any, Optional
 
 from flask import jsonify, request, abort
 from flask import url_for  # noqa: F401 pylint: disable=unused-import
@@ -92,110 +93,147 @@ def create_products():
     #
     # Uncomment this line of code once you implement READ A PRODUCT
     #
-    location_url = url_for("get_product", product_id=product.id, _external=True)
+    location_url = url_for("get_products", product_id=product.id, _external=True)
     return jsonify(message), status.HTTP_201_CREATED, {"Location": location_url}
 
 
 ######################################################################
 # L I S T   A L L   P R O D U C T S
 ######################################################################
+@dataclass
+class ResponseError:
+    """Stores response errors to differentiate them from product iterators"""
+    body: str
+    status: int = status.HTTP_400_BAD_REQUEST
+
+    def as_response(self):
+        """Returns a tuple that can be used as a server response"""
+        return (self.body, self.status)
+
+
+def filter_by_name(name: str) -> Iterable[Product]:
+    """Validates raw_names, then filters products by them"""
+    if name == "":
+        return ResponseError(
+            body="name must not be empty",
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    return Product.find_by_name(name)
+
+
+def filter_by_category(category: str) -> Iterable[Product]:
+    """Validates raw_categories, then filters products by them"""
+    if category not in Category.__members__:
+        return ResponseError(
+            body=f"category '{category}' is not valid",
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    return Product.find_by_category(Category[category])
+
+
+def filter_by_availability(available: str) -> Iterable[Product]:
+    """Validates raw_availabilities, then filters products by them"""
+    if available not in ("true", "false"):
+        return ResponseError(
+            body=f"available value '{available}' is not true or false",
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    return Product.find_by_availability(available == "true")
+
+
+filters = (
+    ("name", filter_by_name),
+    ("category", filter_by_category),
+    ("available", filter_by_availability),
+)
+
 
 @app.route("/products", methods=["GET"])
 def list_products():
+    """Responds with a list of products filterable by query"""
     products = Product.all()
-    if "name" in request.args:
-        names = set(request.args.getlist("name"))
-        products = (p for p in products if p.name in names)
-    
-    if "category" in request.args:
-        raw_categories = request.args.getlist("category")
-        for c in raw_categories:
-            if c not in Category.__members__:
-                return (f"category '{c}' is not valid", status.HTTP_400_BAD_REQUEST)
+    for key, filter_func in filters:
+        if key not in request.args:
+            continue
 
-        categories = set(Category[c] for c in raw_categories)
-        products = (p for p in products if p.category in categories)
+        products = filter_func(request.args.get(key))
+        if isinstance(products, ResponseError):
+            return products.as_response()
 
+        return [p.serialize() for p in products]
 
-    if "available" in request.args:
-        raw_availabilities = request.args.getlist("available")
-        for a in raw_availabilities:
-            if a not in ["0", "1"]:
-                return (f"available value '{a}' is not 0 or 1", status.HTTP_400_BAD_REQUEST)
+    return [p.serialize() for p in Product.all()]
 
-        availabilities = set(bool(int(a)) for a in raw_availabilities)
-        if len(availabilities) > 1:
-            return ("only one type of availability should be listed", status.HTTP_422_UNPROCESSABLE_ENTITY)
-
-        products = (p for p in products if p.available in availabilities)
-
-    return [p.serialize() for p in products]
 
 ######################################################################
 # R E A D   A   P R O D U C T
 ######################################################################
-
 @app.route("/products/<int:product_id>", methods=["GET"])
-def get_product(product_id: int):
+def get_products(product_id: int):
+    """Get product information"""
     product = Product.find(product_id)
     if product is None:
         return ("product not found", status.HTTP_404_NOT_FOUND)
 
     return product.serialize()
 
+
 ######################################################################
 # U P D A T E   A   P R O D U C T
 ######################################################################
-
+@dataclass
 class Transform:
-    def __init__(self, matches, converts = None):
-        self.matches = matches
-        self.converts = converts
+    """Holds a validator and a converter together for a specific product field"""
+    matches: Callable[[Any], bool]
+    converts: Optional[Callable[[Any], Any]] = None
 
-updateable = { 
-    "name": Transform(lambda x: isinstance(x, str)), 
-    "description": Transform(lambda x: isinstance(x, str)), 
-    "available": Transform(lambda x: isinstance(x, bool)), 
+
+updateable = {
+    "name": Transform(matches=lambda x: isinstance(x, str)),
+    "description": Transform(matches=lambda x: isinstance(x, str)),
+    "available": Transform(matches=lambda x: isinstance(x, bool)),
     "price": Transform(matches=lambda x: isinstance(x, str), converts=Decimal),
-    "category": Transform(matches=lambda x: x in Category.__members__, converts=Category.__getitem__)
+    "category": Transform(matches=lambda x: x in Category.__members__, converts=Category.__getitem__),
 }
+
+
 @app.route("/products/<int:product_id>", methods=["PUT"])
 def update_product(product_id: int):
+    """Updates a product's information"""
     product = Product.find(product_id)
     if product is None:
         return ("product not found", status.HTTP_404_NOT_FOUND)
 
     data = request.get_json()
-    if not isinstance(data, dict):
-        return ("body must be a JSON object", status.HTTP_400_BAD_REQUEST)
-    elif len(data) <= 0:
+    if len(data) <= 0:
         return ("body must be non-empty", status.HTTP_422_UNPROCESSABLE_ENTITY)
 
-    for k, v in data.items():
-        transform = updateable.get(k)
+    for key, value in data.items():
+        transform = updateable.get(key)
         if transform is None:
-            return (f"key '{k}' is not a valid field", status.HTTP_422_UNPROCESSABLE_ENTITY)
-        elif not transform.matches(v):
-            return (f"field '{k}' has an invalid value ({v})", status.HTTP_422_UNPROCESSABLE_ENTITY)
-        else:
-            converted = v if transform.converts is None else transform.converts(v)
-            setattr(product, k, converted)
+            return (f"key '{key}' is not a valid field", status.HTTP_422_UNPROCESSABLE_ENTITY)
+        if not transform.matches(value):
+            return (f"field '{key}' has an invalid value ({value})", status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+        converted = value if transform.converts is None else transform.converts(value)
+        setattr(product, key, converted)
 
     product.update()
     return product.serialize()
-            
-
 
 
 ######################################################################
 # D E L E T E   A   P R O D U C T
 ######################################################################
-
 @app.route("/products/<int:product_id>", methods=["DELETE"])
 def delete_product(product_id):
+    """Deletes a product by its id"""
     product = Product.find(product_id)
     if product is None:
         return ("product not found", status.HTTP_404_NOT_FOUND)
-    else:
-        product.delete()
-        return ("", status.HTTP_204_NO_CONTENT)
+
+    product.delete()
+    return ("", status.HTTP_204_NO_CONTENT)
